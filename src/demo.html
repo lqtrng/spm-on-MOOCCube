@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Next Topic</title>
+<style>
+:root {
+  --bg: #f7f7f4; --ink: #1d1f21; --muted: #5f6368; --line: #d3d3cc;
+  --accent: #1f5f8b; --accent-ink: #ffffff;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17191b; --ink: #eceded; --muted: #a3a8ad; --line: #3a3e42;
+    --accent: #7db8de; --accent-ink: #10222e;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #17191b; --ink: #eceded; --muted: #a3a8ad; --line: #3a3e42;
+  --accent: #7db8de; --accent-ink: #10222e;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+button { font: inherit; color: inherit; cursor: pointer; background: none; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+small { color: var(--muted); font-size: .8em; font-weight: 400; }
+
+#screen { display: grid; grid-template-columns: 60% 40%; height: 100vh; height: 100dvh; }
+.side { display: grid; grid-template-rows: 35% 65%; min-width: 0; min-height: 0; }
+.side + .side { border-left: 1px solid var(--line); }
+.pane { min-width: 0; min-height: 0; padding: 16px; overflow-y: auto; }
+.pane + .pane { border-top: 1px solid var(--line); }
+
+#session { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 8px; list-style: none; margin: 0; }
+#session button { min-height: 40px; max-width: 100%; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; text-align: left; overflow-wrap: anywhere; }
+#session button:hover { border-color: var(--accent); }
+#session button span { color: var(--muted); margin-left: 6px; }
+#session li { max-width: 100%; }
+
+#options { display: flex; flex-direction: column; overflow: hidden; }
+#filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 8px; margin-bottom: 12px; }
+#field, #search { width: 100%; min-height: 44px; padding: 8px 12px; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+#topics { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; padding: 2px; }
+#topics button { min-height: 36px; max-width: 100%; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; text-align: left; overflow-wrap: anywhere; }
+#topics button:hover { border-color: var(--accent); }
+
+#next { display: flex; flex-direction: column; justify-content: center; background: var(--accent); color: var(--accent-ink); overflow-wrap: anywhere; }
+#next.empty { background: none; color: var(--muted); align-items: center; }
+#next-name { font-size: 1.5rem; font-weight: 650; line-height: 1.2; }
+#next-field { opacity: .85; }
+#next-share { margin-top: 4px; font-size: 2rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+#others { list-style: none; margin: 0; }
+#others li { display: grid; grid-template-columns: minmax(0, 1fr) 72px 52px; gap: 10px; align-items: center; padding: 4px 0; font-size: .9rem; }
+.other-name { overflow-wrap: anywhere; }
+.bar { display: block; height: 8px; min-width: 2px; background: var(--accent); border-radius: 0 4px 4px 0; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 720px) {
+  body { overflow: auto; }
+  #screen { display: flex; flex-direction: column; height: auto; }
+  .side { display: contents; }
+  .pane + .pane { border-top: 0; }
+  #session:empty, #others:empty { display: none; }
+  #next { order: 1; min-height: 140px; }
+  #options { order: 2; display: block; overflow: visible; }
+  #topics { display: block; overflow: visible; }
+  #topics button { margin: 0 6px 6px 0; }
+  #filters { grid-template-columns: minmax(0, 1fr); }
+  #others { order: 3; overflow: visible; border-top: 1px solid var(--line); }
+}
+</style>
+</head>
+<body>
+<main id="screen">
+  <div class="side">
+    <ol id="session" class="pane" aria-label="Session"></ol>
+    <div id="options" class="pane">
+      <div id="filters">
+        <select id="field" aria-label="Discipline"><option value="">All disciplines</option></select>
+        <input id="search" type="search" placeholder="Search topics" aria-label="Search topics" autocomplete="off" autofocus>
+      </div>
+      <div id="topics"></div>
+    </div>
+  </div>
+  <div class="side">
+    <output id="next" class="pane" for="search" aria-live="polite"></output>
+    <ol id="others" class="pane" aria-label="Other topics"></ol>
+  </div>
+</main>
+
+<script id="model" type="application/json">/*MODEL*/</script>
+<script>
+"use strict";
+const M = JSON.parse(document.getElementById("model").textContent);
+const MAX_CONTEXT = M.config.max_len;
+const LIST_LIMIT = 60;
+const OTHERS_LIMIT = 50;
+
+// Mirrors ProbabilityModel in src/model.rs. Node i is a pattern: its parent extended by one item. key[i] holds
+// 2 * item + (1 if the item starts a new video). Nodes are breadth-first, so children are contiguous.
+const first = new Uint32Array(M.n.length);
+first[0] = 1;
+for (let i = 1; i < M.n.length; i++) first[i] = first[i - 1] + M.n[i - 1];
+const itemOf = c => M.key[c] >> 1;
+const isSeq = c => (M.key[c] & 1) === 1;
+
+const nItems = (() => {
+  let n = 0;
+  for (let c = first[0]; c < first[0] + M.n[0]; c++) n = Math.max(n, itemOf(c) + 1);
+  return n;
+})();
+const prior = new Float64Array(nItems);
+for (let c = first[0]; c < first[0] + M.n[0]; c++) prior[itemOf(c)] = M.support[c] / M.support[0];
+
+function scoresOf(query) {
+  const itemMask = new Uint8Array(nItems);
+  query.forEach((itemset, i) => {
+    for (const t of itemset) if (t < nItems) itemMask[t] |= 1 << i;
+  });
+  const scores = new Float64Array(nItems);
+  const cfg = M.config;
+
+  // prefixLen counts the prefix's elements (videos), prefixItems its items (topics).
+  function visit(node, mask, prefixLen, prefixItems) {
+    const recency = mask === 0 ? 0 : query.length - 1 - (31 - Math.clz32(mask));
+    const weight = Math.pow(cfg.len_weight, prefixItems) * Math.pow(cfg.recency, recency);
+    const after = mask === 0 ? 0xFF : ~(((mask & -mask) * 2 - 1)) & 0xFF;
+    const end = first[node] + M.n[node];
+    for (let c = first[node]; c < end; c++) {
+      if (M.support[c] < cfg.min_support) continue;
+      const t = itemOf(c);
+      const seq = isSeq(c);
+      if (seq && prefixLen < cfg.max_len) {
+        const p = M.support[c] / M.support[node];
+        const v = weight * p / Math.pow(prior[t], cfg.alpha);
+        scores[t] = cfg.agg === "Sum" ? scores[t] + v : Math.max(scores[t], v);
+      }
+      const childLen = prefixLen + (seq ? 1 : 0);
+      if (childLen >= cfg.max_len) continue;
+      const next = seq ? itemMask[t] & after : itemMask[t] & mask;
+      if (next !== 0) visit(c, next, childLen, prefixItems + 1);
+    }
+  }
+  visit(0, 0, 0, 0);
+  return scores;
+}
+
+function bestOf(scores) {
+  let best = 0;
+  for (let t = 1; t < scores.length; t++) {
+    if (scores[t] > scores[best] || (scores[t] === scores[best] && prior[t] > prior[best])) best = t;
+  }
+  return best;
+}
+
+function predict(query) {
+  return bestOf(scoresOf(query));
+}
+
+// ---- Page ----
+const $ = id => document.getElementById(id);
+const session = [];
+const allTopics = Object.keys(M.names).map(Number).sort((a, b) => prior[b] - prior[a]);
+const text = t => `${M.names[t].name} ${M.names[t].field}`.toLowerCase();
+const percent = x => x < 0.001 ? "<0.1%" : `${(100 * x).toFixed(1)}%`;
+
+function el(tag, props = {}, ...children) {
+  const e = Object.assign(document.createElement(tag), props);
+  e.append(...children);
+  return e;
+}
+
+const nameOf = t => [M.names[t].name, " ", el("small", { textContent: M.names[t].field })];
+
+function matches() {
+  const q = $("search").value.trim().toLowerCase();
+  const field = $("field").value;
+  return allTopics.filter(t => (!field || M.names[t].field === field) && (!q || text(t).includes(q)));
+}
+
+function pick(t) {
+  session.push(t);
+  if (session.length > MAX_CONTEXT) session.shift();
+  $("search").value = "";
+  render();
+  $("search").focus();
+}
+
+function renderSession() {
+  $("session").replaceChildren(...session.map((t, i) => {
+    const b = el("button", { type: "button" }, ...nameOf(t), el("span", { textContent: "×" }));
+    b.setAttribute("aria-label", `Remove ${M.names[t].name}`);
+    b.onclick = () => { session.splice(i, 1); render(); };
+    return el("li", {}, b);
+  }));
+}
+
+function renderPrediction() {
+  if (session.length === 0) {
+    $("next").className = "pane empty";
+    $("next").replaceChildren("Pick a topic");
+    $("others").replaceChildren();
+    return;
+  }
+  const scores = scoresOf(session.map(t => [t]));
+  const best = bestOf(scores);
+  const total = scores.reduce((a, b) => a + b, 0);
+  $("next").className = "pane";
+  $("next").replaceChildren(
+    el("div", { id: "next-name", textContent: M.names[best].name }),
+    el("div", { id: "next-field", textContent: M.names[best].field }),
+    el("div", { id: "next-share", textContent: percent(scores[best] / total) }));
+  const others = Array.from(scores, (s, t) => t).filter(t => t !== best && scores[t] > 0)
+    .sort((a, b) => scores[b] - scores[a] || prior[b] - prior[a]).slice(0, OTHERS_LIMIT);
+  $("others").replaceChildren(...others.map(t => {
+    const share = scores[t] / total;
+    const bar = el("span", { className: "bar" });
+    bar.style.width = `${100 * scores[t] / scores[others[0]]}%`;
+    bar.setAttribute("aria-hidden", "true");
+    const row = el("li", { title: `${M.names[t].name}: ${percent(share)}` },
+      el("span", { className: "other-name" }, ...nameOf(t)),
+      el("span", {}, bar),
+      el("span", { className: "num", textContent: percent(share) }));
+    return row;
+  }));
+}
+
+function renderTopics() {
+  $("topics").replaceChildren(...matches().slice(0, LIST_LIMIT).map(t => {
+    const b = el("button", { type: "button" }, ...nameOf(t));
+    b.onclick = () => pick(t);
+    return b;
+  }));
+}
+
+function render() { renderSession(); renderPrediction(); renderTopics(); }
+
+for (const f of [...new Set(allTopics.map(t => M.names[t].field))].filter(Boolean).sort()) {
+  $("field").append(el("option", { value: f, textContent: f }));
+}
+$("field").onchange = renderTopics;
+$("search").oninput = renderTopics;
+$("search").onkeydown = e => {
+  const top = e.key === "Enter" && e.target.value.trim() ? matches()[0] : undefined;
+  if (top !== undefined) pick(top);
+};
+render();
+</script>
+<!--SELFTEST-->
+</body>
+</html>
