@@ -32,30 +32,64 @@ struct RawDataset {
     topic_ccids: Vec<(String, String)>,
 }
 
+/// Which topic names the topics are told apart by.
+#[derive(Clone, Copy, PartialEq)]
+pub enum TopicNames {
+    /// The machine translation in `concept-video.txt`, which merges some distinct Chinese names.
+    English,
+    /// The original names in `concept-video backup.txt`, with the discipline taken from the English file,
+    /// which has the same rows in the same order.
+    Chinese,
+}
+
 impl RawDataset {
     /// Reads the three files in `dir`. All of `user-video.json` is held in memory, in no fixed user order.
-    pub fn parse(dir: &Path) -> Self {
+    pub fn parse(dir: &Path, names: TopicNames) -> Self {
         RawDataset {
             user_videos: lines(&dir.join("user-video.json"))
                 .par_bridge()
                 .map(|line| serde_json::from_str(&line).expect("user-video row"))
                 .collect(),
             video_ccids: tsv_pairs(&dir.join("video_id-ccid.txt")).collect(),
-            topic_ccids: tsv_pairs(&dir.join("concept-video.txt")).collect(),
+            topic_ccids: match names {
+                TopicNames::English => tsv_pairs(&dir.join("concept-video.txt")).collect(),
+                TopicNames::Chinese => Self::chinese_topics(dir),
+            },
         }
+    }
+
+    /// (`K_<Chinese name>_<English discipline>`, ccid) for every row of the Chinese file.
+    fn chinese_topics(dir: &Path) -> Vec<(String, String)> {
+        let english: Vec<(String, String)> = tsv_pairs(&dir.join("concept-video.txt")).collect();
+        let chinese: Vec<(String, String)> = tsv_pairs(&dir.join("concept-video backup.txt")).collect();
+        assert_eq!(english.len(), chinese.len(), "the two topic files must have the same rows");
+        english
+            .iter()
+            .zip(&chinese)
+            .filter_map(|((en, en_ccid), (zh, zh_ccid))| {
+                assert_eq!(en_ccid, zh_ccid, "the two topic files must be in the same order");
+                let (_, field) = en.rsplit_once('_')?;
+                let (name, _) = zh.strip_prefix("K_")?.rsplit_once('_')?;
+                Some((format!("K_{name}_{field}"), zh_ccid.clone()))
+            })
+            .collect()
     }
 }
 
 /// From a directory of raw files to a `Dataset`: the only way into this module's data.
 pub struct ETL {
     dir: PathBuf,
+    names: TopicNames,
 }
 
 impl ETL {
     pub fn new(dir: PathBuf) -> Self {
-        Self {
-            dir,
-        }
+        Self { dir, names: TopicNames::English }
+    }
+
+    /// Topics told apart by their original Chinese names; see `TopicNames::Chinese`.
+    pub fn chinese(dir: PathBuf) -> Self {
+        Self { dir, names: TopicNames::Chinese }
     }
 
     pub fn run(&self, audit: &Audit) -> Dataset {
@@ -63,7 +97,7 @@ impl ETL {
     }
 
     fn extract(&self) -> RawDataset {
-        RawDataset::parse(&self.dir)
+        RawDataset::parse(&self.dir, self.names)
     }
 
     fn transform(raw_dataset: RawDataset, audit: &Audit) -> Dataset {
@@ -126,6 +160,14 @@ const DIALOGUE: [&str; 15] = [
 ];
 /// Longer names are sentences or repetitions from the translation model, not terms.
 const MAX_WORDS_PER_TOPIC: usize = 6;
+/// The same fragments in Chinese names: teacher, professor, college, university, institute, school, mister.
+const NOT_CONTENT_ZH: [&str; 8] = ["老师", "教授", "学院", "大学", "研究院", "研究所", "学校", "先生"];
+/// Longer Chinese names are sentences, not terms.
+const MAX_CHARS_PER_CHINESE_TOPIC: usize = 12;
+
+fn is_cjk(c: char) -> bool {
+    matches!(c, '\u{3400}'..='\u{4dbf}' | '\u{4e00}'..='\u{9fff}' | '\u{f900}'..='\u{faff}')
+}
 
 impl Dataset {
     /// (train, val, test): a 70/15/15 split of the users, so that no user appears in two sets. Users are
@@ -247,12 +289,19 @@ impl Dataset {
     fn clean_topic(topic: &str) -> Option<String> {
         let (name, discipline) = topic.strip_prefix("K_")?.rsplit_once('_')?;
         let name = name
-            .trim_start_matches(['-', ',', '.', '"', '&', '_', ')', ' '])
-            .trim_end_matches(['.', ',', '!', '?', ':', ';', '"', '-', '_', ' ']);
-        Self::is_real_topic(name).then(|| format!("K_{name}_{discipline}"))
+            .trim_start_matches(['-', ',', '.', '"', '&', '_', ')', ' ', '，', '。', '、', '：', '；', '）', '”', '·'])
+            .trim_end_matches(['.', ',', '!', '?', ':', ';', '"', '-', '_', ' ', '，', '。', '、', '：', '；', '！', '？', '（', '“', '·'])
+            .to_lowercase();
+        Self::is_real_topic(&name).then(|| format!("K_{name}_{discipline}"))
     }
 
     fn is_real_topic(name: &str) -> bool {
+        if name.chars().any(is_cjk) {
+            return name.chars().count() >= 2
+                && name.chars().count() <= MAX_CHARS_PER_CHINESE_TOPIC
+                && !NOT_CONTENT_ZH.iter().any(|w| name.contains(w))
+                && !NOT_CONTENT.iter().any(|w| name.contains(w));
+        }
         let mut words = name.split(|c: char| !c.is_alphanumeric() && c != '\'');
         name.chars().count() >= 2
             && name.chars().any(char::is_alphabetic)
@@ -341,8 +390,17 @@ mod tests {
             "K_mooc's teacher._Education",
             "K_one two three four five six seven_Physics",
             "not a topic",
+            "K_清华大学_Computer Science",
+            "K_张老师_Education",
+            "K_这是一个非常长的句子而不是一个术语_Physics",
         ] {
             assert_eq!(clean(topic), None, "{topic}");
         }
+    }
+
+    #[test]
+    fn chinese_names_are_normalized() {
+        assert_eq!(clean("K_二叉树。_Computer Science").as_deref(), Some("K_二叉树_Computer Science"));
+        assert_eq!(clean("K_C语言_Computer Science").as_deref(), Some("K_c语言_Computer Science"));
     }
 }

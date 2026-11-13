@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waypoint — Your study planner</title>
+<style>
+:root { --bg:#f4f4ef; --surface:#fdfdf9; --surface-2:#f0f0e9; --sunken:#ebebe3; --ink:#17211b; --muted:#667069; --line:#d9ddd5; --step:#315f4c; --step-strong:#244c3b; --step-soft:#dcebe2; --on-step:#fff; --done:#64853e; --done-soft:#e6efd9; --on-done:#fff; --goal:#d06032; --goal-soft:#f8e5d8; --on-goal:#fff; --lime:#d9f275; --shadow:0 1px 2px rgba(31,47,38,.04),0 18px 48px rgba(31,47,38,.08); --shadow-soft:0 8px 24px rgba(31,47,38,.06); color-scheme:light; }
+* { box-sizing:border-box; }
+html { min-width:320px; }
+body { margin:0; min-height:100vh; background:var(--bg); color:var(--ink); font:15px/1.55 system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans CJK SC",sans-serif; }
+body::before { content:""; position:fixed; inset:0; pointer-events:none; z-index:-1; background:radial-gradient(circle at 78% -10%,color-mix(in srgb,var(--lime) 18%,transparent),transparent 32rem),radial-gradient(circle at -8% 70%,color-mix(in srgb,var(--step) 8%,transparent),transparent 26rem); }
+button,input,select { font:inherit; color:inherit; }
+button { cursor:pointer; background:none; border:0; padding:0; }
+button:active { transform:translateY(1px); }
+button:disabled { cursor:not-allowed; opacity:.45; }
+:focus-visible { outline:3px solid color-mix(in srgb,var(--lime) 75%,var(--step)); outline-offset:3px; border-radius:8px; }
+ul,ol { list-style:none; margin:0; padding:0; }
+h1,h2,h3,p { margin:0; }
+[hidden] { display:none !important; }
+#loading { min-height:100vh; display:grid; place-items:center; color:var(--muted); font-size:1rem; letter-spacing:.01em; }
+#loading::before { content:""; width:10px; height:10px; margin-right:10px; display:inline-block; border-radius:50%; background:var(--step); box-shadow:18px 0 0 var(--lime); animation:pulse 1s ease-in-out infinite alternate; }
+@keyframes pulse { to { opacity:.35; transform:translateX(5px); } }
+#app { width:100%; }
+.shell { width:min(920px,calc(100% - 40px)); margin:0 auto; padding:24px 0 72px; }
+.sidebar { display:flex; align-items:center; gap:28px; min-width:0; }
+.brand { display:flex; align-items:center; gap:11px; font-size:1.05rem; font-weight:780; letter-spacing:-.02em; }
+.brand-mark { width:34px; height:34px; display:grid; place-items:center; border-radius:11px 11px 11px 3px; background:var(--ink); color:var(--lime); font-weight:900; box-shadow:var(--shadow-soft); }
+.workspace { min-width:0; margin-top:28px; }
+.kicker { margin-bottom:8px; color:var(--step); font-size:.72rem; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+.card { background:color-mix(in srgb,var(--surface) 96%,transparent); border:1px solid color-mix(in srgb,var(--line) 74%,transparent); border-radius:24px; box-shadow:var(--shadow); padding:28px; min-width:0; }
+.card-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:16px; }
+h2 { font-size:1.25rem; line-height:1.2; font-weight:740; letter-spacing:-.025em; }
+.count { color:var(--muted); font-weight:400; margin-left:4px; }
+.hint { color:var(--muted); font-size:.92rem; }
+.link { color:var(--step); font-size:.88rem; font-weight:680; padding:6px 8px; border-radius:8px; }
+.link:hover { background:var(--step-soft); color:var(--step-strong); }
+input[type=search],select { width:100%; min-height:48px; padding:10px 14px; background:var(--surface-2); border:1px solid var(--line); border-radius:13px; transition:border-color .16s,box-shadow .16s,background .16s; }
+input[type=search]:hover,select:hover { border-color:color-mix(in srgb,var(--step) 55%,var(--line)); }
+input[type=search]:focus,select:focus { border-color:var(--step); background:var(--surface); box-shadow:0 0 0 4px color-mix(in srgb,var(--step-soft) 70%,transparent); outline:0; }
+.finder { display:grid; grid-template-columns:minmax(0,2fr) minmax(190px,1fr); gap:10px; align-items:center; }
+#learned-mode { margin-top:0; }
+#goals-finder { margin-top:14px; grid-template-columns:minmax(0,1fr) auto; }
+#tab-learned .finder { margin-top:14px; grid-template-columns:minmax(300px,1fr) minmax(0,1fr) auto; }
+@media (max-width:620px) { .rows li:has(> .row-actions > .icon:only-child) { grid-template-columns:auto minmax(0,1fr) auto; } .rows li:has(> .row-actions > .icon:only-child) .row-actions { grid-column:auto; } }
+@media (max-width:760px) { #tab-learned .finder { grid-template-columns:minmax(0,1fr); } }
+.under { margin-top:10px; }
+.rows { display:grid; gap:6px; margin-top:12px; }
+.rows li { display:grid; grid-template-columns:auto minmax(14ch,1fr) auto; gap:4px 12px; align-items:center; padding:8px 10px 8px 12px; border:1px solid color-mix(in srgb,var(--line) 72%,transparent); border-radius:14px; background:color-mix(in srgb,var(--surface-2) 52%,transparent); transition:border-color .16s,background .16s; }
+.rows li:hover { border-color:color-mix(in srgb,var(--step) 38%,var(--line)); background:var(--surface-2); }
+.row-title { display:flex; align-items:center; gap:9px; min-width:0; }
+.row-name { font-weight:680; overflow-wrap:anywhere; }
+.discipline-icon { width:26px; height:26px; display:inline-grid; place-items:center; flex:0 0 26px; border:1px solid color-mix(in srgb,var(--step) 15%,var(--line)); border-radius:8px; background:var(--surface); font-size:.9rem; line-height:1; box-shadow:0 2px 6px rgba(31,47,38,.05); }
+.stop-icons { display:flex; gap:5px; margin-top:5px; }
+.stop-icons .discipline-icon { width:24px; height:24px; flex-basis:24px; font-size:.82rem; }
+.row-note { display:block; color:var(--muted); font-size:.85rem; overflow-wrap:anywhere; }
+.row-actions { display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
+.mini { font-size:.8rem; font-weight:680; padding:7px 11px; border-radius:9px; background:var(--surface); border:1px solid var(--line); white-space:nowrap; transition:background .16s,color .16s,border-color .16s; }
+.mini:hover { background:var(--step-soft); border-color:color-mix(in srgb,var(--step) 34%,var(--line)); color:var(--step-strong); }
+.mini.to-goal { background:var(--goal-soft); border-color:transparent; color:var(--goal); }
+.mini.to-goal:hover { background:var(--goal); color:var(--on-goal); }
+.mini.icon { width:34px; height:32px; padding:0; display:inline-grid; place-items:center; font-size:1rem; line-height:1; }
+.picks { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+.pick { display:inline-flex; align-items:center; gap:7px; padding:6px 11px; border-radius:999px; border:1px solid var(--line); background:var(--surface); font-size:.85rem; font-weight:650; transition:background .16s,border-color .16s,color .16s; }
+.pick .discipline-icon { width:20px; height:20px; flex-basis:20px; font-size:.75rem; border-radius:6px; box-shadow:none; }
+.pick .count { margin-left:0; font-variant-numeric:tabular-nums; }
+.pick:hover { border-color:color-mix(in srgb,var(--step) 38%,var(--line)); }
+.pick:focus-visible { outline:2px solid var(--step); outline-offset:2px; }
+.pick[aria-pressed="true"] { background:var(--step); border-color:var(--step); color:var(--on-step); }
+.pick[aria-pressed="true"] .count { color:inherit; opacity:.8; }
+.picks.steps .pick { font-size:.8rem; padding:5px 10px; }
+.field-head { display:flex; align-items:center; gap:8px; }
+.field-head .count { margin-left:auto; font-weight:600; letter-spacing:0; font-variant-numeric:tabular-nums; }
+.field-group + .field-group { margin-top:6px; }
+.group { margin:22px 0 7px; color:var(--muted); font-size:.72rem; font-weight:780; letter-spacing:.09em; text-transform:uppercase; }
+.more { margin-top:10px; }
+.badge-count { flex:none; padding:2px 7px; border-radius:7px; background:var(--step-soft); color:var(--step); font-size:.75rem; font-weight:750; font-variant-numeric:tabular-nums; }
+.pager { display:flex; align-items:center; justify-content:center; gap:14px; margin-top:14px; }
+.next-panel { margin-top:32px; padding:20px; border-radius:18px; background:var(--surface-2); }
+.next-panel .card-head { margin-bottom:12px; }
+.next-panel .rows li { background:var(--surface); }
+.tick { width:32px; height:32px; border-radius:10px; border:2px solid var(--line); color:transparent; font-size:.95rem; font-weight:800; line-height:1; display:grid; place-items:center; flex:none; background:var(--surface); transition:background .15s,border-color .15s,transform .1s; }
+.tick:hover { border-color:var(--done); color:var(--done); }
+.tick:active { transform:scale(.92); }
+.tick.on { background:var(--done); border-color:var(--done); color:var(--on-done); box-shadow:0 5px 14px color-mix(in srgb,var(--done) 25%,transparent); }
+.chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+.chips:empty { display:none; }
+.chip { display:inline-flex; align-items:center; gap:7px; max-width:100%; padding:6px 6px 6px 12px; border-radius:10px; background:var(--done-soft); color:var(--ink); font-size:.88rem; overflow-wrap:anywhere; }
+.chip::before { content:"✓"; color:var(--done); font-weight:700; }
+.chip button { width:24px; height:24px; border-radius:50%; color:var(--muted); flex:none; }
+.chip button:hover { background:var(--surface); color:var(--ink); }
+.hero { padding:32px; position:relative; overflow:hidden; }
+.hero::before { content:""; position:absolute; width:220px; height:220px; right:-105px; top:-120px; border-radius:50%; border:35px solid color-mix(in srgb,var(--lime) 24%,transparent); pointer-events:none; }
+.eyebrow { color:var(--step); font-size:.7rem; font-weight:800; letter-spacing:.13em; text-transform:uppercase; }
+#path-title { max-width:650px; font-size:clamp(1.8rem,4vw,2.7rem); line-height:1.08; font-weight:760; letter-spacing:-.04em; margin-top:6px; overflow-wrap:anywhere; text-wrap:balance; }
+#path-title .goal-name { color:var(--goal); }
+#progress { display:grid; grid-template-columns:auto minmax(90px,180px); align-items:center; justify-content:start; gap:12px; margin-top:18px; font-size:.8rem; font-weight:700; color:var(--muted); }
+#progress .track { width:180px; height:8px; border-radius:4px; background:var(--sunken); overflow:hidden; }
+#progress .track i { display:block; height:100%; background:var(--done); border-radius:3px; transition:width .3s; }
+#banner { margin-top:18px; padding:14px 16px; border-radius:14px; background:var(--done-soft); border-left:4px solid var(--done); font-weight:650; }
+#message { margin-top:24px; padding:22px; border-radius:18px; background:var(--surface-2); color:var(--muted); }
+#message p { max-width:60ch; }
+#message button { margin-top:14px; display:inline-block; }
+#message.plain { padding:0; background:none; }
+#route { margin-top:30px; }
+.stop { position:relative; display:grid; grid-template-columns:42px minmax(0,1fr) auto; gap:0 16px; padding-bottom:28px; }
+.stop:last-child { padding-bottom:0; }
+.stop:not(:last-child)::after { content:""; position:absolute; left:20px; top:41px; bottom:0; width:2px; background:linear-gradient(var(--line),color-mix(in srgb,var(--step) 45%,var(--line))); }
+.dot { width:42px; height:42px; border-radius:14px; display:grid; place-items:center; font-weight:800; font-size:.82rem; font-variant-numeric:tabular-nums; z-index:1; box-shadow:0 0 0 5px var(--surface); }
+.stop.known .dot { background:var(--done-soft); color:var(--done); }
+.stop.step .dot { background:var(--step); color:var(--on-step); box-shadow:0 0 0 5px var(--surface),0 8px 20px color-mix(in srgb,var(--step) 22%,transparent); }
+.stop.later .dot { background:var(--surface); color:var(--step); border:2px dashed var(--step); }
+.stop.goal .dot { background:var(--goal); color:var(--on-goal); border:0; border-radius:50% 50% 50% 6px; box-shadow:0 0 0 5px var(--surface),0 8px 20px color-mix(in srgb,var(--goal) 30%,transparent); }
+.stop.known .stop-name { font-size:1rem; font-weight:620; color:var(--muted); padding-top:8px; }
+.stop-name { font-size:1.15rem; font-weight:720; line-height:1.22; letter-spacing:-.018em; overflow-wrap:anywhere; padding-top:4px; }
+.stop.next .stop-name { font-size:1.55rem; letter-spacing:-.035em; }
+.stop.goal .stop-name { color:var(--goal); }
+.stop-field { color:var(--muted); font-size:.8rem; margin-top:4px; }
+.stop-field .discipline-icon { width:25px; height:25px; flex-basis:25px; font-size:.84rem; }
+.strength { display:flex; align-items:center; gap:8px; margin-top:9px; font-size:.84rem; color:var(--muted); flex-wrap:wrap; }
+.strength b { color:var(--ink); font-variant-numeric:tabular-nums; }
+.strength span:last-child { flex:1; min-width:14ch; }
+.meter { width:72px; height:7px; border-radius:4px; background:var(--sunken); overflow:hidden; flex:none; }
+.meter i { display:block; height:100%; background:var(--step); border-radius:3px; }
+.stop details { margin-top:6px; font-size:.8rem; color:var(--muted); }
+.stop summary { cursor:pointer; width:fit-content; color:var(--step); font-weight:650; }
+.stop .tick { margin-top:5px; }
+.badge { display:inline-block; margin-bottom:4px; padding:3px 8px; border-radius:7px; font-size:.65rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.stop.next .badge { background:var(--step-soft); color:var(--step); }
+.stop.goal .badge { background:var(--goal-soft); color:var(--goal); }
+.rough { grid-column:2/-1; margin:-8px 0 15px; padding:10px 12px; border-radius:10px; background:var(--surface-2); color:var(--muted); font-size:.8rem; }
+.fresh { animation:arrive .35s ease-out; }
+@keyframes arrive { from { opacity:0; transform:translateY(6px); } }
+@media (prefers-reduced-motion:reduce) { .fresh { animation:none; } * { transition:none !important; } }
+.tabs { flex:1; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; padding:5px; border:1px solid var(--line); border-radius:16px; background:color-mix(in srgb,var(--surface) 90%,transparent); box-shadow:var(--shadow-soft); }
+.tabs button { width:100%; min-width:0; min-height:44px; display:flex; align-items:center; justify-content:center; gap:8px; padding:8px 10px; border-radius:11px; font-weight:650; text-align:center; color:var(--muted); transition:color .16s,background .16s; }
+.tabs button:hover { color:var(--ink); background:color-mix(in srgb,var(--surface) 55%,transparent); }
+.tabs button[aria-selected=true] { background:var(--ink); color:var(--bg); box-shadow:var(--shadow-soft); }
+.nav-icon { width:25px; height:25px; display:grid; place-items:center; border-radius:8px; background:color-mix(in srgb,var(--surface-2) 72%,transparent); color:var(--step); font-size:.82rem; font-weight:850; }
+.tabs button[aria-selected=true] .nav-icon { background:var(--lime); color:#1b281f; }
+.tabs .count { font-size:.85em; }
+#toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); display:flex; gap:16px; align-items:center; max-width:calc(100vw - 32px); padding:13px 16px; border-radius:13px; background:var(--ink); color:var(--bg); box-shadow:var(--shadow); z-index:5; }
+#toast button { color:inherit; font-weight:700; text-decoration:underline; }
+@media (max-width:1099px) { .nav-icon { display:none; } .tabs button { white-space:nowrap; } }
+/* Wide screens: navigation in a sidebar, each tab in columns, lists two across. */
+@media (min-width:1100px) {
+  .shell { width:min(1440px,calc(100% - 64px)); display:grid; grid-template-columns:220px minmax(0,1fr); gap:32px; align-items:start; padding-top:32px; }
+  .sidebar { position:sticky; top:32px; flex-direction:column; align-items:stretch; gap:24px; }
+  .brand { padding:0 6px; }
+  .tabs { grid-template-columns:minmax(0,1fr); padding:6px; }
+  .tabs button { justify-content:flex-start; padding:10px 12px; }
+  .workspace { margin-top:0; }
+  .split { display:grid; grid-template-columns:minmax(300px,360px) minmax(0,1fr); gap:28px; align-items:start; }
+  .split .finder { grid-template-columns:minmax(0,1fr); }
+  .split > .next-panel { margin-top:0; }
+  .rows.cols { grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); }
+  #start-field { max-width:360px; }
+}
+@media (max-width:760px) { .shell { width:min(100% - 28px,680px); padding-top:18px; } .sidebar { display:block; } .brand { margin:2px 3px 16px; } .tabs button { padding:8px 5px; font-size:.76rem; } .nav-icon { display:none; } }
+@media (max-width:620px) { .shell { width:min(calc(100% - 20px),520px); padding-bottom:42px; } .tabs { grid-template-columns:repeat(2,minmax(0,1fr)); } .card,.hero { padding:20px; border-radius:20px; } .next-panel { margin-top:24px; padding:15px; } .finder { grid-template-columns:minmax(0,1fr); } .rows li { grid-template-columns:auto minmax(0,1fr); } .row-actions { grid-column:2; justify-content:flex-start; } #path-title { font-size:1.85rem; } #progress { grid-template-columns:1fr; gap:7px; } #progress .track { width:100%; } .stop { grid-template-columns:38px minmax(0,1fr) auto; gap:0 12px; } .dot { width:38px; height:38px; border-radius:12px; } .stop:not(:last-child)::after { left:18px; top:37px; } .stop.next .stop-name { font-size:1.25rem; } .strength span:last-child { flex-basis:100%; } .rough { grid-column:2/-1; } }
+</style>
+</head>
+<body>
+<div id="loading" role="status">Loading the study map…</div>
+<script>
+window.onerror = () => {
+  const l = document.getElementById("loading");
+  if (l && !l.hidden) l.textContent = "The study map could not be loaded. Rebuild planner.html and open it again.";
+};
+</script>
+
+<div id="app" hidden>
+<div class="shell">
+  <aside class="sidebar" aria-label="Planner navigation">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">W</span><span>Waypoint</span></div>
+    <div class="tabs" role="tablist" aria-label="What do you want to do">
+      <button type="button" role="tab" id="tabbtn-path" data-tab="path" aria-controls="tab-path"><span class="nav-icon" aria-hidden="true">↗</span>My path</button>
+      <button type="button" role="tab" id="tabbtn-learned" data-tab="learned" aria-controls="tab-learned"><span class="nav-icon" aria-hidden="true">✓</span>Learned</button>
+      <button type="button" role="tab" id="tabbtn-explore" data-tab="explore" aria-controls="tab-explore"><span class="nav-icon" aria-hidden="true">✦</span>Explore</button>
+      <button type="button" role="tab" id="tabbtn-start" data-tab="start" aria-controls="tab-start"><span class="nav-icon" aria-hidden="true">◇</span>Where to start</button>
+    </div>
+  </aside>
+
+  <main class="workspace">
+  <section id="tab-path" class="card hero" role="tabpanel" aria-labelledby="tabbtn-path" aria-live="polite">
+    <div id="eyebrow" class="eyebrow"></div>
+    <h2 id="path-title"></h2>
+    <div id="progress"><span id="progress-text"></span><span class="track"><i id="progress-bar"></i></span></div>
+    <div id="banner"></div>
+    <div class="path-split">
+      <div class="path-main">
+        <ol id="route"></ol>
+        <div id="message"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-learned" class="card" role="tabpanel" aria-labelledby="tabbtn-learned">
+    <div class="card-head">
+      <h2>Topics <span id="n-learned" class="count"></span></h2>
+      <button id="clear-learned" type="button" class="link">Clear all learned</button>
+    </div>
+    <p class="hint">Tick every topic you've learned. Choose a discipline to see its topics A to Z.</p>
+    <p id="learned-hint" class="hint under"></p>
+    <div class="finder">
+      <select id="learned-field" aria-label="Discipline"></select>
+      <input id="search" type="search" placeholder="Narrow by name…" aria-label="Narrow topics by name" autocomplete="off">
+      <div id="learned-mode" class="picks" role="group" aria-label="Which topics"></div>
+    </div>
+    <p id="learned-note" class="hint under" hidden></p>
+    <ul id="learned-list" class="rows cols"></ul>
+    <nav id="learned-pager" class="pager" aria-label="Pages of topics"></nav>
+  </section>
+
+  <section id="tab-explore" class="card" role="tabpanel" aria-labelledby="tabbtn-explore">
+    <div class="card-head"><h2>Explore <span id="n-goals" class="count"></span></h2></div>
+    <p class="hint">Topics you can reach from what you've learned. Each step is a topic the patterns predict after the steps before it; within a step count, the most probable chain comes first.</p>
+    <form id="goals-finder" class="finder" role="search">
+      <input id="goals-search" type="search" placeholder="Search reachable topics by name…" aria-label="Search reachable topics by name" autocomplete="off">
+      <button type="submit" class="mini">Search</button>
+    </form>
+    <p id="goals-note" class="hint under" hidden></p>
+    <div id="goals-fields" class="picks" role="group" aria-label="Discipline"></div>
+    <div id="goals-steps" class="picks steps" role="group" aria-label="Steps away"></div>
+    <ul id="goals-list" class="rows cols"></ul>
+    <nav id="goals-pager" class="pager" aria-label="Pages of topics"></nav>
+  </section>
+
+  <section id="tab-start" class="card" role="tabpanel" aria-labelledby="tabbtn-start">
+    <div class="card-head"><h2>Where to start</h2></div>
+    <select id="start-field" aria-label="Discipline to start in"></select>
+    <p id="start-note" class="hint under"></p>
+    <ul id="start-list" class="rows cols"></ul>
+    <nav id="start-pager" class="pager" aria-label="Pages of topics"></nav>
+  </section>
+  </main>
+</div>
+</div>
+<div id="toast" role="status" hidden><span id="toast-text"></span><button id="toast-undo" type="button">Undo</button></div>
+
+<script id="model" type="application/json">/*MODEL*/</script>
+<script>
+"use strict";
+/*SCORING*/
+// ---- Planner ----
+// My path and Explore plan with the prediction function itself. The learned topics are one itemset, as if
+// all were in one video. A breadth-first search starts there: each reached topic is expanded once, by
+// scoring its own context (the learned itemset, then each step of its chain as its own video, the last
+// MAX_CONTEXT videos), and every topic the rules predict that the search has not reached yet becomes a next
+// step if its share is at least MIN_LINK. A step's share is its score over the scores of all topics predicted
+// from that context. Of the chains
+// to a topic, the one with the fewest steps wins, then the one whose shares multiply to most. The search runs
+// once each time the learned topics change, and its result is kept until the next change.
+// "Where to start" still reads links: x -> t when the pattern <(x)(t)> holds in at least MIN_LINK of the
+// sessions with x.
+const MIN_LINK = 0.01;   // Smallest share of a predicted step, and of a link in "Where to start".
+const MAX_STEPS = 6;     // Longest chain: later steps are rarely right (see the README).
+const MIN_LEADS = 3;     // An entry topic leads directly to at least this many topics of its discipline.
+const START_CHAIN = 3;   // Steps of the chain shown after an entry topic: later steps are rarely followed.
+
+// rootNode[t] is the pattern <(t)>.
+const rootNode = new Int32Array(nItems).fill(-1);
+for (let c = first[0]; c < first[0] + M.n[0]; c++) rootNode[itemOf(c)] = c;
+const sessionsWith = t => M.support[rootNode[t]];
+
+function eachLink(x, visit) {
+  const a = rootNode[x];
+  for (let c = first[a], end = c + M.n[a]; c < end; c++) {
+    if (isSeq(c) && itemOf(c) !== x && M.support[c] >= MIN_LINK * M.support[a]) visit(itemOf(c), M.support[c]);
+  }
+}
+
+// The links reversed: the topics x of each t, in compressed rows. Built on first use.
+let reverse = null;
+function reverseLinks() {
+  if (reverse) return reverse;
+  const start = new Uint32Array(nItems + 1);
+  const each = visit => {
+    for (let x = 0; x < nItems; x++) if (rootNode[x] >= 0) eachLink(x, (t, together) => visit(x, t, together));
+  };
+  each((x, t) => { start[t + 1]++; });
+  for (let t = 0; t < nItems; t++) start[t + 1] += start[t];
+  const from = new Uint32Array(start[nItems]);
+  const together = new Uint32Array(start[nItems]);
+  const fill = start.slice(0, nItems);
+  each((x, t, n) => { from[fill[t]] = x; together[fill[t]++] = n; });
+  return reverse = { start, from, together };
+}
+
+const forward = (x, visit) => eachLink(x, (t, together) => visit(t, together / sessionsWith(x)));
+
+// The scores of the rules that match the query. scoresOf also gives every topic its prior through the empty
+// prefix, so that term is taken off: a topic no rule predicts scores 0.
+function ruleScores(query) {
+  const s = scoresOf(query);
+  for (let t = 0; t < nItems; t++) {
+    const rest = s[t] - prior[t];
+    s[t] = rest > 1e-9 ? rest : 0;
+  }
+  return s;
+}
+
+// The chain to a reached topic, first step first.
+function chainOf(reach, t) {
+  const chain = [];
+  for (let x = t; x !== -1; x = reach.get(x).via) chain.push(x);
+  return chain.reverse();
+}
+
+// The context a chain is predicted from: its start itemset, then each step as its own video.
+const contextOf = (start, chain) => [start, ...chain.map(t => [t])].slice(-MAX_CONTEXT);
+
+// One start per learned topic, each its own itemset. Scored together, learned topics from different courses
+// split each step's share between all of them: 40 Computer Science topics from several courses predict 200
+// to 400 next topics, so each share is tiny. Grouping by discipline is not enough for the same reason.
+const startsOf = learned => learned.map(t => ({ topic: t, topics: [t] }));
+
+// Every topic within MAX_STEPS predicted steps of the learned topics: its fewest steps, `share`, its score
+// over all scores of the context it was predicted from, `prob`, the product of the shares along its chain,
+// `via`, the step before it (-1 for a first step), and `start`, the index in `reach.starts` of the start
+// its chain comes from. Learned topics are never steps.
+function predictedReach(learned) {
+  const reach = new Map();
+  const known = new Set(learned);
+  reach.starts = startsOf(learned);
+  // A layer holds what to expand: a start (x = -1) or a reached topic, with the start its chain comes from.
+  let layer = reach.starts.map((_, start) => ({ x: -1, start }));
+  for (let d = 1; d <= MAX_STEPS && layer.length > 0; d++) {
+    const next = [];
+    for (const { x, start } of layer) {
+      const chain = x === -1 ? [] : chainOf(reach, x);
+      const onChain = new Set(chain);
+      const s = ruleScores(contextOf(reach.starts[start].topics, chain));
+      let total = 0;
+      for (let t = 0; t < nItems; t++) if (s[t] > 0 && !known.has(t) && !onChain.has(t)) total += s[t];
+      if (total === 0) continue;
+      const base = x === -1 ? 1 : reach.get(x).prob;
+      for (let t = 0; t < nItems; t++) {
+        if (!(s[t] > 0) || known.has(t) || onChain.has(t)) continue;
+        const share = s[t] / total;
+        if (share < MIN_LINK) continue;
+        const r = reach.get(t);
+        if (!r) { reach.set(t, { steps: d, share, prob: base * share, via: x, start }); next.push(t); }
+        else if (r.steps === d && base * share > r.prob) Object.assign(r, { share, prob: base * share, via: x, start });
+      }
+    }
+    // A topic's chain and start are final once its layer is done, so they are read only now.
+    layer = next.map(t => ({ x: t, start: reach.get(t).start }));
+  }
+  return reach;
+}
+
+// ---- Page ----
+const $ = id => document.getElementById(id);
+const STORE = "studypath:v2";   // v2: topic ids from the Chinese-name mining; v1 ids mean other topics.
+const SLICE_PAGE = 10;      // Rows per page in the paged lists.
+const CHIPS = 20;           // Topics per page in the Learned tab.
+const ROUGH_FROM = 3;       // Steps from this index on are drawn as rougher guesses.
+
+const allTopics = Object.keys(M.names).map(Number).sort((a, b) => prior[b] - prior[a]);
+const linksOut = new Map(allTopics.map(t => { let n = 0; eachLink(t, () => n++); return [t, n]; }));
+const nameOf = t => M.names[t].name;
+const fieldOf = t => M.names[t].field;
+const text = t => `${nameOf(t)} ${fieldOf(t)}`.toLowerCase();
+const percent = x => x < 0.001 ? "<0.1%" : x < 0.1 ? `${(100 * x).toFixed(1)}%` : `${Math.round(100 * x)}%`;
+const count = n => n.toLocaleString("en");
+const plural = (n, word) => `${count(n)} ${word}${n === 1 ? "" : "s"}`;
+const FIELD_ICONS = {
+  "Applied Economics": "📈", "Architecture": "🏛️", "Arts": "🎨", "Atmospheric Science": "🌦️",
+  "Basic Medicine": "🩺", "Biology": "🧬", "Business Administration": "💼", "Chemical Engineering": "⚗️",
+  "Chemistry": "🧪", "Chinese Language & Literature": "🀄", "Civil Engineering": "🌉",
+  "Clinical Chinese Medicine": "🌿", "Clinical Medicine": "⚕️", "Computer Science": "💻",
+  "Control Science": "🎛️", "Crop Science": "🌾", "Education": "🎓", "Electrical Engineering": "⚡",
+  "Electronic Science & Technology": "🔌", "Environmental Science": "🌱", "Ethnology": "🌍",
+  "Food Science": "🥗", "Foreign Languages & Literature": "🗣️", "Geography": "🗺️",
+  "Geological Engineering": "⛏️", "Geology": "🪨", "History": "📜", "History of Science & Technology": "⚙️",
+  "Horticulture": "🌻", "Hydraulic Engineering": "💧", "Information & Communication Engineering": "📡",
+  "Instrument Science": "📐", "Journalism & Communication": "📰", "Law": "⚖️",
+  "Library & Archive Management": "🗄️", "Light Industry Technology": "🏭",
+  "Management Science & Engineering": "📊", "Materials Science": "🔩", "Mathematics": "∑",
+  "Mechanical Engineering": "⚙️", "Mechanics": "🛠️", "Military Political Work": "🎖️",
+  "Military Thought & History": "🛡️", "Nuclear Science": "⚛️", "Oil & Gas Engineering": "🛢️",
+  "Optical Engineering": "🔭", "Pharmacy": "💊", "Philosophy": "💭", "Physical Education": "🏃",
+  "Physics": "🔬", "Plant Protection": "🐞", "Political Science": "🏛️", "Power & Thermal Engineering": "🔥",
+  "Psychology": "🧠", "Public Administration": "🏢", "Public Health": "❤️", "Sociology": "👥",
+  "Systems Science": "🔗", "Tactics": "♟️", "Textile Science": "🧵", "Theoretical Economics": "💹",
+  "Transportation Engineering": "🚆"
+};
+
+function disciplineIcon(t) {
+  const field = fieldOf(t);
+  return el("span", { className: "discipline-icon", textContent: FIELD_ICONS[field] || "◇", title: field,
+    ariaLabel: field, role: "img" });
+}
+
+const state = {
+  learned: [],        // In the order ticked; planned from as one set.
+  goal: null,
+  trail: [],          // The route so far: where it started, then each route step ticked since the goal was set.
+  reached: null,      // The goal just ticked as learned.
+  tab: "path",        // One use per tab: path, learned, explore, start.
+  startField: "",
+  // The discipline and step count each sliced list shows; the best available when unset.
+  slices: { goals: { field: "", steps: null, page: 0, query: "" } },   // query: the Explore search, lower case.
+  pages: { learned: { page: 0, field: "", only: false }, start: { page: 0 } },   // The Learned tab's discipline, page, and whether only learned topics show.
+};
+let learnedSet = new Set();
+let lastPath = [];
+let storage = true;
+
+function load() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE) || "{}");
+    const known = t => Number.isInteger(t) && M.names[t] !== undefined;
+    state.learned = [...new Set((saved.learned || []).filter(known))];
+    state.goal = known(saved.goal) ? saved.goal : null;
+    state.trail = Array.isArray(saved.trail) ? saved.trail.filter(known) : [];
+  } catch (e) { storage = false; }
+  learnedSet = new Set(state.learned);
+}
+
+function save() {
+  if (!storage) return;
+  try { localStorage.setItem(STORE, JSON.stringify({ learned: state.learned, goal: state.goal, trail: state.trail })); }
+  catch (e) { storage = false; }
+}
+
+// What the learned set reaches, recomputed only when the set changes.
+let reachMemo = { learned: null, reach: null };
+function currentReach() {
+  if (reachMemo.learned !== state.learned) reachMemo = { learned: state.learned, reach: predictedReach(state.learned) };
+  return reachMemo.reach;
+}
+
+function el(tag, props = {}, ...children) {
+  const e = Object.assign(document.createElement(tag), props);
+  e.append(...children);
+  return e;
+}
+
+function button(label, key, onclick, className = "mini") {
+  const b = el("button", { type: "button", className, textContent: label, onclick });
+  b.dataset.k = key;
+  return b;
+}
+
+// Redraws part of the page, keeping keyboard focus on the control that was used.
+function keepFocus(redraw) {
+  const key = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.k : undefined;
+  redraw();
+  const same = key && document.querySelector(`[data-k="${CSS.escape(key)}"]`);
+  if (same) same.focus({ preventScroll: true });
+}
+
+// ---- Actions ----
+let undo = null;
+let toastTimer = 0;
+function toast(message, restore) {
+  undo = restore;
+  $("toast-text").textContent = message;
+  $("toast-undo").hidden = !restore;
+  $("toast").hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { $("toast").hidden = true; }, 6000);
+}
+
+function setLearned(list) {
+  state.learned = list;
+  learnedSet = new Set(list);
+}
+
+function toggleLearned(t) {
+  const before = { learned: state.learned, goal: state.goal, trail: state.trail };
+  if (learnedSet.has(t)) {
+    setLearned(state.learned.filter(x => x !== t));
+    state.trail = state.trail.filter(x => x !== t);
+    toast(`Removed "${nameOf(t)}" from what you've learned.`, () => { setLearned(before.learned); state.trail = before.trail; update(); });
+  } else {
+    setLearned([...state.learned, t]);
+    state.reached = null;
+    if (t === state.goal) { state.reached = t; state.goal = null; state.trail = []; }
+    else if (state.goal !== null && lastPath.includes(t)) state.trail = [...state.trail, t];
+  }
+  update();
+}
+
+function setGoal(t) {
+  state.goal = t;
+  state.trail = [];
+  state.reached = null;
+  state.tab = "path";
+  update();
+}
+
+// ---- Building blocks ----
+function tick(t, where) {
+  const on = learnedSet.has(t);
+  const b = button("✓", `tick:${where}:${t}`, () => toggleLearned(t), on ? "tick on" : "tick");
+  b.setAttribute("aria-pressed", on);
+  b.setAttribute("aria-label", on ? `${nameOf(t)}: learned. Unmark` : `Mark ${nameOf(t)} as learned`);
+  b.title = on ? "Learned. Click to unmark" : "Mark as learned";
+  return b;
+}
+
+// One topic as a list row: tick, name, a note, and the actions that make sense for it.
+function row(t, where, note, actions = ["goal"]) {
+  const acts = el("span", { className: "row-actions" });
+  if (actions.includes("goal") && !learnedSet.has(t) && t !== state.goal) {
+    const flag = button("⚑", `goal:${where}:${t}`, () => setGoal(t), "mini to-goal icon");
+    flag.setAttribute("aria-label", `Set ${nameOf(t)} as goal`);
+    flag.title = "Set as goal";
+    acts.append(flag);
+  }
+  return el("li", {}, tick(t, where),
+    el("span", {}, el("span", { className: "row-title" }, disciplineIcon(t),
+      el("span", { className: "row-name", textContent: nameOf(t) })),
+      ...(note ? [el("span", { className: "row-note", textContent: note })] : [])),
+    acts);
+}
+
+function fillFields(select, fields, firstLabel) {
+  select.replaceChildren(...(firstLabel ? [el("option", { value: "", textContent: firstLabel })] : []),
+    ...fields.map(f => el("option", { value: f, textContent: f })));
+}
+
+// Fewest steps first, then the most probable chain.
+const byChain = reach => (a, b) => {
+  const ra = reach.get(a), rb = reach.get(b);
+  return ra.steps - rb.steps || rb.prob - ra.prob || prior[b] - prior[a] || a - b;
+};
+
+// A toggle button with a label and a count, used to choose a slice of a list.
+function pick(key, on, label, n, onclick, icon) {
+  const b = el("button", { type: "button", className: "pick", onclick },
+    ...(icon ? [icon] : []), el("span", { textContent: label }), el("span", { className: "count", textContent: count(n) }));
+  b.dataset.k = key;
+  b.setAttribute("aria-pressed", on);
+  return b;
+}
+
+// A list of reached topics shown one slice at a time: a discipline, then a step count. `name` selects the
+// elements `${name}-fields`, `-steps`, `-list` and `-pager`, and the choice kept in state.slices[name].
+// With a search (sel.query), only topics whose name contains it are listed: per discipline, every step count
+// at once, and the step buttons are hidden.
+function renderSlices(name, reach, topics, stepWord, makeRow) {
+  const sel = state.slices[name];
+  const order = byChain(reach);
+  if (sel.query) topics = topics.filter(t => nameOf(t).toLowerCase().includes(sel.query));
+  topics.sort(order);
+  const byField = new Map();
+  for (const t of topics) {
+    if (!byField.has(fieldOf(t))) byField.set(fieldOf(t), []);
+    byField.get(fieldOf(t)).push(t);
+  }
+  const fields = [...byField.keys()].sort((a, b) => order(byField.get(a)[0], byField.get(b)[0]) || a.localeCompare(b));
+  if (!byField.has(sel.field)) sel.field = fields[0] ?? "";
+  const inField = byField.get(sel.field) || [];
+  const bySteps = new Map();
+  for (const t of inField) bySteps.set(reach.get(t).steps, (bySteps.get(reach.get(t).steps) || 0) + 1);
+  if (!bySteps.has(sel.steps)) sel.steps = inField.length ? reach.get(inField[0]).steps : null;
+  const shown = sel.query ? inField : inField.filter(t => reach.get(t).steps === sel.steps);
+
+  const redraw = () => keepFocus(render);
+  $(`${name}-fields`).replaceChildren(...fields.map(f => pick(`${name}f:${f}`, f === sel.field, f, byField.get(f).length,
+    () => { sel.field = f; sel.steps = null; sel.page = 0; redraw(); }, disciplineIcon(byField.get(f)[0]))));
+  $(`${name}-steps`).replaceChildren(...[...bySteps].sort((a, b) => a[0] - b[0]).map(([s, n]) =>
+    pick(`${name}s:${s}`, s === sel.steps, `${plural(s, "step")} ${stepWord}`, n,
+      () => { sel.steps = s; sel.page = 0; redraw(); })));
+  $(`${name}-fields`).hidden = topics.length === 0;
+  $(`${name}-steps`).hidden = topics.length === 0 || Boolean(sel.query);
+  $(`${name}-list`).replaceChildren(...paged(name, sel, shown, SLICE_PAGE).map(makeRow));
+}
+
+// One page of `items`, `size` per page, with Previous / Next in the element `${name}-pager`. The page
+// number is kept in `holder.page`.
+function paged(name, holder, items, size) {
+  const pages = Math.max(1, Math.ceil(items.length / size));
+  holder.page = Math.min(holder.page, pages - 1);
+  const turn = (label, key, to) => {
+    const b = button(label, `${name}p:${key}`, () => { holder.page = to; keepFocus(render); }, "mini");
+    b.disabled = to < 0 || to >= pages;
+    return b;
+  };
+  $(`${name}-pager`).hidden = pages < 2;
+  $(`${name}-pager`).replaceChildren(turn("‹ Previous", "prev", holder.page - 1),
+    el("span", { className: "hint", textContent: `Page ${holder.page + 1} of ${pages}` }), turn("Next ›", "next", holder.page + 1));
+  return items.slice(holder.page * size, (holder.page + 1) * size);
+}
+
+// ---- Learned and Explore ----
+// Every topic, one discipline at a time and A to Z, each with its learned tick; or only the learned ones.
+function renderLearned() {
+  const n = state.learned.length;
+  const sel = state.pages.learned;
+  $("n-learned").textContent = n ? `· ${count(n)} learned` : "";
+  $("clear-learned").hidden = n === 0;
+  $("learned-hint").hidden = storage;
+  $("learned-hint").textContent = "This browser is not letting the page save, so your ticks will be gone when you close it.";
+  if (state.tab !== "learned") return;
+  if (n === 0) sel.only = false;
+  $("learned-mode").replaceChildren(
+    pick("learnedm:all", !sel.only, "All topics", allTopics.length, () => { sel.only = false; sel.page = 0; keepFocus(render); }),
+    ...(n ? [pick("learnedm:only", sel.only, "Only learned", n, () => { sel.only = true; sel.page = 0; keepFocus(render); })] : []));
+  const q = $("search").value.trim().toLowerCase();
+  const source = (sel.only ? state.learned : allTopics).filter(t => !q || nameOf(t).toLowerCase().includes(q));
+  const byField = new Map();
+  for (const t of source) {
+    if (!byField.has(fieldOf(t))) byField.set(fieldOf(t), []);
+    byField.get(fieldOf(t)).push(t);
+  }
+  const fields = [...byField.keys()].sort((a, b) => a.localeCompare(b));
+  if (!byField.has(sel.field)) {
+    sel.field = byField.has("Computer Science") && !sel.only ? "Computer Science" : fields[0] ?? "";
+    sel.page = 0;
+  }
+  const learnedIn = f => (byField.get(f) || []).filter(t => learnedSet.has(t)).length;
+  $("learned-field").replaceChildren(...fields.map(f => {
+    const done = learnedIn(f);
+    return el("option", { value: f, textContent: `${FIELD_ICONS[f] || "◇"} ${f} (${count(byField.get(f).length)}${done && !sel.only ? ` · ${count(done)} learned` : ""})` });
+  }));
+  $("learned-field").value = sel.field;
+  $("learned-field").disabled = fields.length === 0;
+  $("learned-note").hidden = source.length > 0;
+  $("learned-note").textContent = "No topic has that name.";
+  const inField = (byField.get(sel.field) || []).slice().sort((a, b) => nameOf(a).localeCompare(nameOf(b)) || a - b);
+  $("learned-list").replaceChildren(...paged("learned", sel, inField, CHIPS).map(t =>
+    row(t, "learned", "", ["goal"])));
+}
+
+
+function renderGoals() {
+  const reach = currentReach();
+  const { query } = state.slices.goals;
+  const found = query ? [...reach.keys()].some(t => nameOf(t).toLowerCase().includes(query)) : true;
+  $("n-goals").textContent = reach.size ? count(reach.size) : "";
+  $("goals-finder").hidden = reach.size === 0;
+  $("goals-note").hidden = reach.size > 0 && found;
+  $("goals-note").textContent = reach.size === 0
+    ? state.learned.length ? "Nothing leads on from the topics you've ticked. Tick another topic."
+      : "Tick a topic you've learned, and the topics you can reach from it appear here."
+    : `No reachable topic has “${query}” in its name.`;
+  renderSlices("goals", reach, [...reach.keys()], "away", t =>
+    row(t, "goals", query ? `${plural(reach.get(t).steps, "step")} away` : "", ["goal"]));
+}
+
+// ---- My path ----
+function stopRow(className, dot, ...body) {
+  return el("li", { className: `stop ${className}` }, el("span", { className: "dot", textContent: dot }), ...body);
+}
+
+// A button that opens another tab.
+function go(label, tab) {
+  return button(label, `go:${tab}`, () => { state.tab = tab; render(); });
+}
+
+function renderPath() {
+  const { goal, learned } = state;
+  const show = (id, on) => { $(id).hidden = !on; };
+  const reach = currentReach();
+  // The route is the chain Explore shows for the goal, goal last.
+  const path = goal !== null && reach.has(goal) ? chainOf(reach, goal) : [];
+  const start = path.length > 0 ? reach.starts[reach.get(goal).start] : null;   // The learned itemset the route starts from.
+  const fresh = new Set(path.filter(t => !lastPath.includes(t)));
+  const hadPath = lastPath.length > 0;
+  lastPath = path;
+
+  $("eyebrow").textContent = goal === null ? "No goal yet" : "Your route to";
+  $("path-title").replaceChildren(goal === null ? "Pick a goal" : el("span", { className: "goal-name", textContent: nameOf(goal) }));
+  show("banner", state.reached !== null);
+  if (state.reached !== null) $("banner").textContent = `You reached “${nameOf(state.reached)}”. Pick your next goal in “Explore”.`;
+
+  // Learned stops: what was learned when the route started, then each route step ticked since.
+  const ticked = state.trail.filter(t => learnedSet.has(t));
+  const done = ticked.length;
+  const total = done + path.length;
+  show("progress", path.length > 0);
+  $("progress-text").textContent = `${done} done · ${path.length} to go`;
+  $("progress-bar").style.width = `${total ? 100 * done / total : 0}%`;
+
+  show("route", path.length > 0);
+  $("message").classList.remove("plain");
+  const message = [];
+  if (path.length > 0) {
+    const rows = [stopRow("known", "✓", el("div", {},
+      el("div", { className: "stop-name", textContent: nameOf(start.topic) }),
+      el("div", { className: "stop-icons" }, disciplineIcon(start.topic)),
+      el("div", { className: "stop-field", textContent: "You've learned this. The route starts here." })))];
+    for (const t of ticked) rows.push(stopRow("known", "✓", el("div", {},
+      el("div", { className: "stop-name", textContent: nameOf(t) }),
+      el("div", { className: "stop-icons" }, disciplineIcon(t)),
+      el("div", { className: "stop-field", textContent: "Learned. The route was predicted again with it." })),
+      tick(t, "path-done")));
+    path.forEach((t, i) => {
+      const { share } = reach.get(t);
+      const after = nameOf(i === 0 ? start.topic : path[i - 1]);
+      const context = contextOf(start.topics, path.slice(0, i)).map(v => nameOf(v[0])).join(" → ");
+      const isGoal = t === goal;
+      const classes = ["step", i === 0 ? "next" : "", i >= ROUGH_FROM && !isGoal ? "later" : "", isGoal ? "goal" : "",
+        hadPath && fresh.has(t) ? "fresh" : ""].join(" ");
+      const meter = el("span", { className: "meter" }, el("i"));
+      meter.firstChild.style.width = `${Math.round(100 * share)}%`;
+      meter.setAttribute("aria-hidden", "true");
+      const badge = isGoal ? "Goal" : i === 0 ? "Study next" : "";
+      if (i === ROUGH_FROM && !isGoal) rows.push(el("li", { className: "stop" }, el("span"), el("p", { className: "rough",
+        textContent: "From here the route is a rougher guess. The further ahead a step is, the less often learners actually followed it." })));
+      rows.push(stopRow(classes, isGoal ? "⚑" : String(done + i + 1), el("div", {},
+        ...(badge ? [el("span", { className: "badge", textContent: badge })] : []),
+        el("div", { className: "stop-name", textContent: nameOf(t) }),
+        el("div", { className: "stop-field" }, disciplineIcon(t)),
+        el("div", { className: "strength" }, meter, el("b", { textContent: percent(share) }),
+          el("span", { textContent: `predicted next after ${after}` })),
+        el("details", {}, el("summary", { textContent: "Where this comes from" }),
+          `The patterns scored every topic that can follow ${context}. This topic got ${percent(share)} of the total score.`)),
+        tick(t, "path")));
+    });
+    $("route").replaceChildren(...rows);
+    message.push(button("Drop this goal", "msg:drop", () => { state.goal = null; update(); }, "link"));
+    $("message").classList.add("plain");
+  } else if (goal !== null) {
+    message.push(el("p", { textContent: learned.length === 0 ? "Tick at least one topic you already know, and the route to this goal will appear here."
+      : `The patterns don't predict this goal within ${MAX_STEPS} steps of what you've learned. Pick a goal in Explore, or tick more topics you know.` }),
+      go("Explore", "explore"), " ",
+      button("Drop this goal", "msg:drop", () => { state.goal = null; update(); }, "mini"));
+  } else if (learned.length === 0) {
+    message.push(el("p", { textContent: "Tick what you've learned, then pick a goal, and the topics to study in between appear here. New here? “Where to start” lists good first topics for each discipline." }),
+      go("Where to start", "start"), " ", go("Find a topic I know", "learned"));
+  } else if (reach.size === 0) {
+    message.push(el("p", { textContent: "Nothing leads on from the topics you've ticked. Tick another topic, or browse where to start." }),
+      go("Where to start", "start"));
+  } else {
+    message.push(el("p", { textContent: `You can reach ${plural(reach.size, "topic")} from what you've learned. Choose one as your goal, and the route to it appears here.` }),
+      go("Choose a goal", "explore"));
+  }
+  show("message", message.length > 0);
+  $("message").replaceChildren(...message);
+}
+
+// ---- Where to start ----
+// Entry topics of a discipline: at most one topic of the same discipline leads to them, and they link
+// directly to at least MIN_LEADS topics of it; those linking to the most come first. (Within MAX_STEPS
+// nearly every topic reaches most of its discipline, so only direct links tell entries apart.) Each comes
+// with its main chain: the strongest link at each step, staying in the discipline.
+function leadsWithin(t, f) {
+  let n = 0;
+  eachLink(t, y => { if (fieldOf(y) === f) n++; });
+  return n;
+}
+
+function mainChain(t, f) {
+  const chain = [t];
+  const seen = new Set(chain);
+  for (let i = 0; i < START_CHAIN; i++) {
+    let best = -1, bestShare = 0;
+    forward(chain[chain.length - 1], (y, share) => {
+      if (!seen.has(y) && fieldOf(y) === f && share > bestShare) { best = y; bestShare = share; }
+    });
+    if (best < 0) break;
+    chain.push(best);
+    seen.add(best);
+  }
+  return chain;
+}
+
+const entryCache = new Map();
+function entryTopics(f) {
+  if (entryCache.has(f)) return entryCache.get(f);
+  const { start, from } = reverseLinks();
+  const leadsIn = t => { let n = 0; for (let k = start[t]; k < start[t + 1]; k++) if (fieldOf(from[k]) === f) n++; return n; };
+  const ranked = allTopics.filter(t => fieldOf(t) === f && linksOut.get(t) > 0 && leadsIn(t) <= 1)
+    .map(t => ({ t, leads: leadsWithin(t, f) }))
+    .sort((a, b) => b.leads - a.leads || prior[b.t] - prior[a.t]);
+  const strong = ranked.filter(e => e.leads >= MIN_LEADS);
+  const entries = (strong.length ? strong : ranked).map(e => ({ ...e, chain: mainChain(e.t, f) }));
+  entryCache.set(f, entries);
+  return entries;
+}
+
+function renderStart() {
+  const f = state.startField;
+  const entries = entryTopics(f);
+  $("start-note").textContent = "Good first topics. → how many topics each leads to. Hover a topic for what usually follows.";
+  $("start-list").replaceChildren(...paged("start", state.pages.start, entries, SLICE_PAGE).map(({ t, leads, chain }) => {
+    const li = row(t, "start", "", ["goal"]);
+    li.querySelector(".row-title").append(el("span", { className: "badge-count", textContent: `→ ${count(leads)}`,
+      title: `Leads straight to ${plural(leads, `${f} topic`)}` }));
+    if (chain.length > 1) li.title = `Then ${chain.slice(1).map(nameOf).join(" → ")}`;
+    return li;
+  }));
+}
+
+function renderTabs() {
+  for (const b of document.querySelectorAll(".tabs button")) {
+    const on = b.dataset.tab === state.tab;
+    b.setAttribute("aria-selected", on);
+    b.tabIndex = on ? 0 : -1;
+    $(`tab-${b.dataset.tab}`).hidden = !on;
+  }
+}
+
+// Redraws the open tab and the counts, keeping keyboard focus on the control that was used.
+function render() {
+  const key = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.k : undefined;
+  renderLearned();
+  renderPath();
+  if (state.tab === "explore") renderGoals();
+  if (state.tab === "start") renderStart();
+  renderTabs();
+  if (key) {
+    const same = document.querySelector(`[data-k="${CSS.escape(key)}"]`);
+    if (same) same.focus({ preventScroll: true });
+  }
+}
+
+function update() { save(); render(); }
+
+// ---- Start ----
+load();
+const fields = [...new Set(allTopics.map(fieldOf))].filter(Boolean).sort();
+const startFields = fields.filter(f => allTopics.some(t => fieldOf(t) === f && linksOut.get(t) > 0));
+fillFields($("start-field"), startFields);
+state.startField = startFields.includes("Computer Science") ? "Computer Science" : startFields[0];
+$("start-field").value = state.startField;
+
+$("search").oninput = () => { state.pages.learned.page = 0; render(); };
+// Explore searches on Search or Enter; emptying the field goes back to the step buttons.
+const searchGoals = () => {
+  const sel = state.slices.goals;
+  sel.query = $("goals-search").value.trim().toLowerCase();
+  sel.page = 0;
+  render();
+};
+$("goals-finder").onsubmit = e => { e.preventDefault(); searchGoals(); };
+$("goals-search").oninput = () => { if ($("goals-search").value.trim() === "" && state.slices.goals.query) searchGoals(); };
+$("learned-field").onchange = e => { state.pages.learned.field = e.target.value; state.pages.learned.page = 0; render(); };
+$("clear-learned").onclick = () => {
+  if (!confirm(`Remove all ${state.learned.length} learned topics?`)) return;
+  const before = state.learned;
+  setLearned([]);
+  toast("Cleared what you've learned.", () => { setLearned(before); update(); });
+  update();
+};
+$("start-field").onchange = e => { state.startField = e.target.value; state.pages.start.page = 0; renderStart(); };
+$("toast-undo").onclick = () => { if (undo) undo(); undo = null; $("toast").hidden = true; };
+for (const b of document.querySelectorAll(".tabs button")) {
+  b.dataset.k = `tab:${b.dataset.tab}`;
+  b.onclick = () => { state.tab = b.dataset.tab; render(); };
+}
+$("app").querySelector(".tabs").onkeydown = e => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+  const tabs = [...document.querySelectorAll(".tabs button")];
+  const current = tabs.indexOf(document.activeElement);
+  if (current < 0) return;
+  e.preventDefault();
+  const next = e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1
+    : (current + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  tabs[next].click();
+  tabs[next].focus();
+};
+render();
+$("loading").hidden = true;
+$("app").hidden = false;
+</script>
+</body>
+</html>

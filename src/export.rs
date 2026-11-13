@@ -1,4 +1,5 @@
-//! Writes the single-file demo: the mined pattern tree and the config, embedded in `demo.html`.
+//! Writes the single-file demos: the mined pattern tree and the config, embedded in `demo.html` (next topic)
+//! and `planner.html` (study path).
 
 use crate::data::Topic;
 use crate::model::{Agg, Config, Model, ProbabilityModel};
@@ -6,8 +7,23 @@ use crate::prefixspan::Patterns;
 use serde_json::{Value, json};
 
 const TEMPLATE: &str = include_str!("demo.html");
+const PLANNER_TEMPLATE: &str = include_str!("planner.html");
 
 pub fn demo_html(patterns: &Patterns, cfg: &Config, topic_names: &[String]) -> String {
+    TEMPLATE.replace("/*MODEL*/", &model_json(patterns, cfg, topic_names))
+}
+
+/// The study-path page. Its scoring code is the demo's own, taken from the demo template, so the two
+/// pages cannot drift apart.
+pub fn planner_html(patterns: &Patterns, cfg: &Config, topic_names: &[String]) -> String {
+    let start = TEMPLATE.find("\"use strict\";\n").expect("demo script start") + "\"use strict\";\n".len();
+    let end = TEMPLATE.find("// ---- Page ----").expect("demo page marker");
+    PLANNER_TEMPLATE
+        .replace("/*SCORING*/", &TEMPLATE[start..end])
+        .replace("/*MODEL*/", &model_json(patterns, cfg, topic_names))
+}
+
+fn model_json(patterns: &Patterns, cfg: &Config, topic_names: &[String]) -> String {
     let n = &patterns.nodes;
     // Only topics in some pattern can influence a prediction, so only those are offered.
     let mut names = serde_json::Map::new();
@@ -33,7 +49,7 @@ pub fn demo_html(patterns: &Patterns, cfg: &Config, topic_names: &[String]) -> S
         },
     });
     // JSON inside <script>: only "</" could end the element early.
-    TEMPLATE.replace("/*MODEL*/", &model.to_string().replace("</", "<\\/"))
+    model.to_string().replace("</", "<\\/")
 }
 
 /// The demo plus a script that recomputes every given query in the browser and compares it with

@@ -6,7 +6,7 @@ mod prefixspan;
 
 use audit::Audit;
 use data::{Dataset, Event, Itemset};
-use model::{Agg, Config, ConstantTopic, Evaluator, LastTopic, ProbabilityModel};
+use model::{Agg, Config, ConstantTopic, Evaluator, LastTopic, PathScore, ProbabilityModel};
 use prefixspan::{Limits, Patterns};
 use std::time::Instant;
 
@@ -15,6 +15,11 @@ const DATA_DIR: &str = "data/mooc";
 /// Picked by `tune` on the validation set.
 const CHOSEN: Config =
     Config { min_support: 10, max_len: 3, agg: Agg::Sum, alpha: 0.0, len_weight: 4.0, recency: 0.0 };
+
+/// Videos kept in a path's context: the learned topics as one video, then one per step. Never trims.
+const PATH_QUERY: usize = PATH_STEPS + 1;
+/// Steps of a planned path that `planner` scores. Same as MAX_STEPS in `src/planner.html`.
+const PATH_STEPS: usize = 6;
 
 /// One row per video of each session, in the order the sessions were cut.
 fn itemset_sessions(events: &[Event], ds: &Dataset, name: &str, audit: &Audit) -> Vec<Vec<Itemset>> {
@@ -152,11 +157,101 @@ fn evaluate() {
     println!("target/selftest.html: {} distinct test queries", cases.len());
 }
 
+/// English names for the planner's topics, written after mining: one `<Chinese name>\t<English name>` per line.
+const TRANSLATIONS: &str = "translations/topics_en.tsv";
+
+/// `K_<name>_<discipline>` with the Chinese name replaced by its entry in `TRANSLATIONS`, if it has one.
+fn translated_names(names: &[String]) -> Vec<String> {
+    let table = std::fs::read_to_string(TRANSLATIONS).unwrap_or_default();
+    let english: std::collections::HashMap<&str, &str> =
+        table.lines().filter_map(|l| l.split_once('\t')).filter(|(_, en)| !en.trim().is_empty()).collect();
+    let plain: Vec<String> = names
+        .iter()
+        .map(|key| match key.strip_prefix("K_").and_then(|b| b.rsplit_once('_')) {
+            Some((zh, field)) => format!("K_{}_{field}", english.get(zh).copied().unwrap_or(zh).trim()),
+            None => key.clone(),
+        })
+        .collect();
+    // Distinct Chinese topics can share an English name (synonyms such as 二叉搜索树 and 二叉查找树); those
+    // keep their Chinese name in brackets, so the page never shows two topics with the same name.
+    let mut uses: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for n in &plain {
+        *uses.entry(n).or_default() += 1;
+    }
+    plain
+        .iter()
+        .zip(names)
+        .map(|(en, key)| match (uses[en.as_str()] > 1, en.rsplit_once('_'), key.strip_prefix("K_").and_then(|b| b.rsplit_once('_'))) {
+            (true, Some((name, field)), Some((zh, _))) if name != format!("K_{zh}") => format!("{name} ({zh})_{field}"),
+            _ => en.clone(),
+        })
+        .collect()
+}
+
+/// Mines with `CHOSEN` on topics told apart by their Chinese names, scores planned paths on the test set,
+/// and writes `planner.html` with the names in `TRANSLATIONS`. The page's topics that have none yet are
+/// listed in `mined/planner/untranslated.tsv`. Leaves `demo.html` and `mined/evaluate/` alone.
+fn planner() {
+    let audit = Audit::build("planner");
+    audit.log("config", format!("{CHOSEN:?}"));
+    audit.log("path_query", PATH_QUERY);
+    audit.log("path_steps", PATH_STEPS);
+    let ds = data::ETL::chinese(DATA_DIR.into()).run(&audit);
+    let (train_events, _, test_events) = ds.split_by_user();
+    let train = itemset_sessions(&train_events, &ds, "train", &audit);
+    let test = itemset_sessions(&test_events, &ds, "test", &audit);
+    let patterns = mine_exact(&train, &audit);
+    let model = ProbabilityModel::build(&patterns, CHOSEN);
+
+    // The page offers only the topics in some pattern, so only those need an English name.
+    let names = translated_names(&ds.topic_names);
+    let offered: Vec<&prefixspan::Node> = patterns.children(&patterns.nodes[0]).iter().collect();
+    let missing: Vec<String> = offered
+        .iter()
+        .filter(|c| names[c.item as usize] == ds.topic_names[c.item as usize])
+        .filter(|c| ds.topic_names[c.item as usize].chars().any(|ch| ('\u{3400}'..='\u{9fff}').contains(&ch)))
+        .map(|c| {
+            let (zh, field) = ds.topic_names[c.item as usize].strip_prefix("K_").unwrap().rsplit_once('_').unwrap();
+            format!("{zh}\t{field}\t{}", c.support)
+        })
+        .collect();
+    audit.table("untranslated.tsv", "chinese\tdiscipline\tsessions", &missing);
+    println!("{} topics offered, {} without an English name in {TRANSLATIONS}", offered.len(), missing.len());
+
+    let paths = PathScore::build(&test, PATH_STEPS, |mut seen| {
+        let mut learned: Itemset = seen.iter().copied().collect();
+        learned.sort_unstable();
+        model.rollout(&[learned], &mut seen, PATH_STEPS, PATH_QUERY)
+    });
+    paths.export("patterns", &audit);
+    let popular = PathScore::build(&test, PATH_STEPS, |seen| model.popular_path(&seen, PATH_STEPS));
+    popular.export("popular", &audit);
+
+    let pct = |a: u64, b: u64| format!("{:.2}%", 100.0 * a as f64 / b.max(1) as f64);
+    println!("Planned paths at {} points of test sessions; a step hits if its topic is watched later in the session", paths.points);
+    println!("step  reached  hit when reached  hit of all points  popular topics");
+    for k in 0..PATH_STEPS {
+        println!(
+            "{:>4}  {:>7}  {:>16}  {:>17}  {:>14}",
+            k + 1,
+            pct(paths.planned[k], paths.points),
+            pct(paths.hits[k], paths.planned[k]),
+            pct(paths.hits[k], paths.points),
+            pct(popular.hits[k], popular.points)
+        );
+    }
+
+    let page = export::planner_html(&patterns, &CHOSEN, &names);
+    std::fs::write("planner.html", &page).expect("write planner.html");
+    println!("planner.html: {} KB, {} patterns", page.len() / 1024, patterns.nodes.len() - 1);
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("tune") => tune(args[2].parse().unwrap(), args[3].parse().unwrap()),
         Some("evaluate") => evaluate(),
-        _ => eprintln!("usage: topicrec tune <lowest_support> <max_len> | evaluate"),
+        Some("planner") => planner(),
+        _ => eprintln!("usage: topicrec tune <lowest_support> <max_len> | evaluate | planner"),
     }
 }
